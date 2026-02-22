@@ -30,8 +30,8 @@ Built on **Rust (Tauri)**, this desktop client uses less than ~50MB of RAM. It g
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/adb-debugger.git
-   cd adb-debugger
+   git clone https://github.com/divyakgaur17/adb-studio.git
+   cd adb-studio
    ```
 
 2. Install dependencies:
