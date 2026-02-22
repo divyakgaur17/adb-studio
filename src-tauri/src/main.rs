@@ -322,6 +322,107 @@ async fn auto_connect_wireless() -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+fn start_scrcpy(device_id: Option<String>) -> Result<String, String> {
+    #[allow(unused_mut)]
+    let mut scrcpy_path = "scrcpy".to_string();
+
+    #[cfg(target_os = "macos")]
+    {
+        if std::path::Path::new("/opt/homebrew/bin/scrcpy").exists() {
+            scrcpy_path = "/opt/homebrew/bin/scrcpy".to_string();
+        } else if std::path::Path::new("/usr/local/bin/scrcpy").exists() {
+            scrcpy_path = "/usr/local/bin/scrcpy".to_string();
+        } else if std::path::Path::new("/opt/local/bin/scrcpy").exists() {
+            scrcpy_path = "/opt/local/bin/scrcpy".to_string();
+        }
+    }
+
+    let mut cmd = Command::new(scrcpy_path);
+    
+    // Ensure the child process can find any dependencies like adb if needed
+    #[cfg(target_os = "macos")]
+    if let Ok(path) = std::env::var("PATH") {
+        let adb_dir = {
+            if let Ok(home) = std::env::var("HOME") {
+                format!("{}/Library/Android/sdk/platform-tools", home)
+            } else {
+                "".to_string()
+            }
+        };
+        cmd.env("PATH", format!("/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:{}:{}", adb_dir, path));
+    }
+
+    if let Some(ref dev) = device_id {
+        cmd.args(["-s", dev]);
+    }
+
+    match cmd.spawn() {
+        Ok(_) => Ok("scrcpy started successfully.".to_string()),
+        Err(e) => Err(format!("Failed to start scrcpy: {}. Please ensure scrcpy is installed.", e)),
+    }
+}
+
+#[tauri::command]
+fn install_scrcpy(app_handle: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let _ = app_handle.emit("build_log", ">> Starting scrcpy installation...");
+
+        #[cfg(target_os = "macos")]
+        let cmd_str = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\" && brew install scrcpy";
+        #[cfg(target_os = "linux")]
+        let cmd_str = "sudo apt-get update && sudo apt-get install -y scrcpy";
+        #[cfg(target_os = "windows")]
+        let cmd_str = "winget install Genymobile.scrcpy";
+        
+        // Fallback for unknown OS just in case (though Rust catches compile errors if not covered)
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        let cmd_str = "echo Unsupported OS for automatic installation";
+
+        let _ = app_handle.emit("build_log", format!("> Running: {}", cmd_str));
+
+        let mut cmd = if cfg!(target_os = "windows") {
+            Command::new("cmd")
+        } else {
+            Command::new("sh")
+        };
+
+        let arg = if cfg!(target_os = "windows") { "/C" } else { "-c" };
+
+        let mut child = match cmd
+            .arg(arg)
+            .arg(format!("{} 2>&1", cmd_str))
+            .stdout(Stdio::piped())
+            .spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = app_handle.emit("build_log", format!("Failed to start installation shell: {}", e));
+                let _ = app_handle.emit("build_done", "Failed");
+                return;
+            }
+        };
+
+        let stdout = child.stdout.take().unwrap();
+        let reader = BufReader::new(stdout);
+
+        for line in reader.lines() {
+            if let Ok(log) = line {
+                let _ = app_handle.emit("build_log", log);
+            }
+        }
+
+        if let Ok(status) = child.wait() {
+            if status.success() {
+                let _ = app_handle.emit("build_done", "Success");
+            } else {
+                let _ = app_handle.emit("build_done", "Failed");
+            }
+        } else {
+            let _ = app_handle.emit("build_done", "Failed");
+        }
+    });
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -338,7 +439,9 @@ fn main() {
             get_package_name,
             check_file_exists,
             scan_apks,
-            uninstall_apk
+            uninstall_apk,
+            start_scrcpy,
+            install_scrcpy
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri app");

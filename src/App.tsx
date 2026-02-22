@@ -41,6 +41,7 @@ function App() {
   const [buildLogs, setBuildLogs] = useState<string[]>([]);
   const [isInstalling, setIsInstalling] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [buildTitle, setBuildTitle] = useState("⚙️ Running Task in background...");
 
   const listRef = useRef<ListImperativeAPI>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -147,6 +148,53 @@ function App() {
     }
   };
 
+  const startScrcpy = async () => {
+    try {
+      const dev = selectedDevices.length > 0 ? selectedDevices[0] : null;
+      await invoke("start_scrcpy", { deviceId: dev });
+    } catch (e: any) {
+      if (e.includes("ensure scrcpy is installed")) {
+        const confirmInstall = window.confirm("scrcpy is not installed on your system. Would you like to automatically install it now?");
+        if (confirmInstall) {
+          installScrcpy();
+        }
+      } else {
+        alert(e);
+      }
+    }
+  };
+
+  const installScrcpy = async () => {
+    setBuildTitle("⚙️ Installing scrcpy in background...");
+    setIsBuilding(true);
+    setBuildLogs(["Initializing scrcpy installation..."]);
+
+    const unlistenLog = await listen("build_log", (event: any) => {
+      setBuildLogs(prev => [...prev, event.payload]);
+    });
+
+    const unlistenDone = await listen("build_done", (event: any) => {
+      unlistenLog();
+      unlistenDone();
+
+      if (event.payload === "Success") {
+        alert("scrcpy Installed successfully! You can now start Screen Mirroring.");
+        setIsBuilding(false);
+      } else {
+        alert("Installation failed or completed with errors. Please check the logs in the viewer.");
+      }
+    });
+
+    try {
+      await invoke("install_scrcpy");
+    } catch (e: any) {
+      alert("Error starting installation: " + e);
+      setIsBuilding(false);
+      unlistenLog();
+      unlistenDone();
+    }
+  };
+
   // Build APK Realtime logic
   const buildApk = async (type: string) => {
     if (!projectPath) {
@@ -154,6 +202,7 @@ function App() {
       return;
     }
 
+    setBuildTitle(`⚙️ Compiling ${type === 'release' ? 'Release' : 'Debug'} APK in background...`);
     setIsBuilding(true);
     setBuildLogs(["Initializing Gradle build daemon..."]);
 
@@ -307,7 +356,7 @@ function App() {
         <div style={STYLES.buildOverlay}>
           <div style={STYLES.buildModal}>
             <div style={STYLES.buildHeader}>
-              <span style={{ color: "#fff", fontWeight: 600, fontSize: "15px" }}>⚙️ Compiling Project in background...</span>
+              <span style={{ color: "#fff", fontWeight: 600, fontSize: "15px" }}>{buildTitle}</span>
               <button style={{ ...STYLES.button, padding: "4px 8px", backgroundColor: "#555", color: "#fff", border: "none" }} onClick={() => setIsBuilding(false)}>Hide Viewer</button>
             </div>
             <div style={STYLES.buildLogsView}>
@@ -340,6 +389,7 @@ function App() {
       <div style={STYLES.card}>
         <div style={STYLES.row}>
           <button style={STYLES.button} onClick={fetchDevices}>Refresh Devices</button>
+          <button style={{ ...STYLES.buttonPrimary, backgroundColor: "#6f42c1", border: "1px solid #5a329d" }} onClick={startScrcpy} title="Requires scrcpy installed on your system">Screen Mirror (scrcpy)</button>
           <div style={{ ...STYLES.row, border: "1px solid #ccc", padding: "5px 10px", borderRadius: "6px" }}>
             {deviceList.length > 0 ? deviceList.map((d) => (
               <label key={d} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "13px" }}>
