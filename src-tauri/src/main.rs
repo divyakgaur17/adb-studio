@@ -423,6 +423,70 @@ fn install_scrcpy(app_handle: tauri::AppHandle) {
     });
 }
 
+#[tauri::command]
+async fn force_stop_app(package_name: String, device_ids: Vec<String>) -> Result<String, String> {
+    if device_ids.is_empty() { return Err("No devices selected".to_string()); }
+    let mut outputs = Vec::new();
+    for dev in device_ids {
+        let mut cmd = Command::new(get_adb_path());
+        cmd.args(["-s", &dev, "shell", "am", "force-stop", &package_name]);
+        match cmd.output() {
+            Ok(_) => outputs.push(format!("[{}] Force stopped {}", dev, package_name)),
+            Err(e) => outputs.push(format!("[{}] Error: {}", dev, e)),
+        }
+    }
+    Ok(outputs.join("\n"))
+}
+
+#[tauri::command]
+async fn clear_app_data(package_name: String, device_ids: Vec<String>) -> Result<String, String> {
+    if device_ids.is_empty() { return Err("No devices selected".to_string()); }
+    let mut outputs = Vec::new();
+    for dev in device_ids {
+        let mut cmd = Command::new(get_adb_path());
+        cmd.args(["-s", &dev, "shell", "pm", "clear", &package_name]);
+        match cmd.output() {
+            Ok(out) => outputs.push(format!("[{}] Cleared data: {}", dev, String::from_utf8_lossy(&out.stdout).trim())),
+            Err(e) => outputs.push(format!("[{}] Error: {}", dev, e)),
+        }
+    }
+    Ok(outputs.join("\n"))
+}
+
+#[tauri::command]
+async fn input_text(text: String, device_ids: Vec<String>) -> Result<String, String> {
+    if device_ids.is_empty() { return Err("No devices selected".to_string()); }
+    let safe_text = text.replace(" ", "%s"); // ADB input text space character
+    let mut outputs = Vec::new();
+    for dev in device_ids {
+        let mut cmd = Command::new(get_adb_path());
+        cmd.args(["-s", &dev, "shell", "input", "text", &safe_text]);
+        match cmd.output() {
+            Ok(_) => outputs.push(format!("[{}] Text sent", dev)),
+            Err(e) => outputs.push(format!("[{}] Error: {}", dev, e)),
+        }
+    }
+    Ok(outputs.join("\n"))
+}
+
+#[tauri::command]
+async fn take_screenshot(device_id: Option<String>, save_path: String) -> Result<String, String> {
+    let mut cmd = Command::new(get_adb_path());
+    if let Some(dev) = device_id {
+        cmd.args(["-s", &dev]);
+    }
+    cmd.args(["exec-out", "screencap", "-p"]);
+    
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    
+    if output.status.success() {
+        std::fs::write(&save_path, output.stdout).map_err(|e| e.to_string())?;
+        Ok(format!("Screenshot saved!"))
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -441,7 +505,11 @@ fn main() {
             scan_apks,
             uninstall_apk,
             start_scrcpy,
-            install_scrcpy
+            install_scrcpy,
+            force_stop_app,
+            clear_app_data,
+            input_text,
+            take_screenshot
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri app");

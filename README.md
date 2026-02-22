@@ -4,10 +4,16 @@ A lightning-fast, modern, desktop Graphical User Interface (GUI) for Android Deb
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-## 🌟 Features
+## 🌟 Why Use ADB Studio? (The Pitch)
 
-- **Device Management**: View, connect, and manage connected Android devices (USB and Wireless/mDNS supported).
-- **Logcat Streaming**: Highly performant, real-time filtered Android logging right in your desktop.
+Are you a **React Native, Expo, Flutter, or AI Mobile** developer? Does opening full-blown **Android Studio** to read a single log line or build an APK consume 8GB of your Mac's RAM and cause it to overheat? 
+
+**ADB Studio is your solution.** 
+Built on **Rust (Tauri)**, this desktop client uses less than ~50MB of RAM. It gives you a gorgeous, Apple-styled GUI for 90% of the tasks you realistically need Android Studio for, without ever leaving your VS Code / Cursor workflow. No heavy JVMs, no memory leaks—just lightning-fast ADB commands wrapped in a beautiful interface.
+
+## 🚀 Features
+
+- **Blazing Fast**: Compiles native binaries in the background while keeping your system lightweight.
 - **Background APK Builder**: Built-in support to compile your Android Projects (`assembleDebug` & `assembleRelease`) in the background.
 - **One-Click Installs**: Scan folders for `.apk` files and auto-install them.
 - **scrcpy Integration**: Screen Mirroring built-in! If scrcpy isn't installed, the app can automatically install it via Homebrew/apt/winget.
