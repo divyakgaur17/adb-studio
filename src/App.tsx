@@ -10,6 +10,38 @@ import AppManager from "./AppManager";
 
 const TABS = ["Debug Log", "App Manager", "Profiler", "File Explorer", "Device Tools"];
 
+// Common noisy Android system tags to hide
+const NOISY_TAGS = new Set([
+  "NextAppCoreTrainingJobService", "NextAppTrainingJobService", "NextAppPredictionService",
+  "AppsPredictionProvider", "AppPredictionProvider", "AppsPrediction",
+  "AsusFreezerConfig", "AsusFreezerService", "AsusBoostConfig",
+  "RecentTasksList", "LauncherIcons", "IconSwitcher", "TrainingJobService",
+  "BoundBrokerSvc", "ConnectivityService", "WifiService", "NetworkMonitor",
+  "chatty", "Looper", "ViewRootImpl", "InputMethodManager",
+  "SurfaceFlinger", "BufferQueueProducer", "GraphicBuffer",
+  "ResourcesManager", "ConfigurationController", "MotionRecognitionService",
+  "SensorManager", "PowerManagerService", "BatteryStatsService",
+  "AlarmManager", "JobScheduler", "GnssLocationProvider",
+  "MediaSessionService", "AudioService", "AudioFlinger",
+  "DisplayManagerService", "WindowManager",
+  "ActivityTaskManager", "TaskPersister",
+  "ClipboardService", "InputDispatcher", "InputReader",
+  "vendor.qti", "cnss", "SDM", "QC-QMI",
+  "Finsky", "GmsClient", "GCoreUlr",
+]);
+
+// Parse a logcat line into structured parts
+function parseLogLine(log: string): { time: string; level: string; tag: string; pid: string; message: string } | null {
+  // Format: "02-23 21:07:53.634 D/TagName( 1234): message text here"
+  // Alt format: "02-23 21:07:53.634 D/TagName(1234): message text here"
+  const m = log.match(/^(\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.?\d*)\s+([VDIWEF])\/([^(\s]+)\(\s*(\d+)\):\s*(.*)$/);
+  if (m) return { time: m[1], level: m[2], tag: m[3], pid: m[4], message: m[5] };
+  // Simpler format: "02-23 21:07:53.634 1234 1234 D TagName: message"
+  const m2 = log.match(/^(\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.?\d*)\s+\d+\s+\d+\s+([VDIWEF])\s+([^:]+):\s*(.*)$/);
+  if (m2) return { time: m2[1], level: m2[2], tag: m2[3].trim(), pid: "", message: m2[4] };
+  return null;
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState("Debug Log");
   const [logs, setLogs] = useState<string[]>([]);
@@ -17,6 +49,8 @@ function App() {
   const [useRegex, setUseRegex] = useState(false);
   const [packageFilter, setPackageFilter] = useState("");
   const [levels, setLevels] = useState({ V: true, D: true, I: true, W: true, E: true, F: true });
+  const [hideNoise, setHideNoise] = useState(true);
+  const [activePreset, setActivePreset] = useState<string | null>(null);
   const [crashDetected, setCrashDetected] = useState<string[]>([]);
 
   const [deviceList, setDeviceList] = useState<string[]>([]);
@@ -300,6 +334,37 @@ function App() {
     setLevels((prev: any) => ({ ...prev, [lvl]: !prev[lvl] }));
   };
 
+  const applyPreset = (preset: string) => {
+    if (activePreset === preset) {
+      // Toggle off — reset to defaults
+      setActivePreset(null);
+      setLevels({ V: true, D: true, I: true, W: true, E: true, F: true });
+      setFilter("");
+      return;
+    }
+    setActivePreset(preset);
+    switch (preset) {
+      case "errors":
+        setLevels({ V: false, D: false, I: false, W: false, E: true, F: true });
+        setFilter("");
+        break;
+      case "warnings":
+        setLevels({ V: false, D: false, I: false, W: true, E: true, F: true });
+        setFilter("");
+        break;
+      case "network":
+        setLevels({ V: true, D: true, I: true, W: true, E: true, F: true });
+        setFilter("http|okhttp|retrofit|network|socket|ssl|dns|url|connection");
+        setUseRegex(true);
+        break;
+      case "lifecycle":
+        setLevels({ V: true, D: true, I: true, W: true, E: true, F: true });
+        setFilter("onCreate|onStart|onResume|onPause|onStop|onDestroy|Activity|Fragment");
+        setUseRegex(true);
+        break;
+    }
+  };
+
   const filteredLogs = useMemo(() => {
     let regexObj: RegExp | null = null;
     if (useRegex && filter) {
@@ -307,6 +372,15 @@ function App() {
     }
 
     return logs.filter((log) => {
+      // Noise filter — hide known spammy tags
+      if (hideNoise) {
+        const parsed = parseLogLine(log);
+        if (parsed) {
+          for (const tag of NOISY_TAGS) {
+            if (parsed.tag.includes(tag)) return false;
+          }
+        }
+      }
       if (packageFilter && !log.toLowerCase().includes(packageFilter.toLowerCase())) return false;
       if (filter) {
         if (useRegex && regexObj) {
@@ -319,7 +393,21 @@ function App() {
       if (lvl && !(levels as any)[lvl]) return false;
       return true;
     });
-  }, [logs, packageFilter, filter, levels, useRegex]);
+  }, [logs, packageFilter, filter, levels, useRegex, hideNoise]);
+
+  // Live stats from filtered logs
+  const logStats = useMemo(() => {
+    let e = 0, w = 0, i = 0, d = 0, v = 0;
+    for (const log of filteredLogs) {
+      const lvl = getLevel(log);
+      if (lvl === "E" || lvl === "F") e++;
+      else if (lvl === "W") w++;
+      else if (lvl === "I") i++;
+      else if (lvl === "D") d++;
+      else v++;
+    }
+    return { errors: e, warnings: w, info: i, debug: d, verbose: v };
+  }, [filteredLogs]);
 
   const handleScroll = ({ scrollOffset, scrollUpdateWasRequested }: any) => {
     if (!scrollUpdateWasRequested && terminalRef.current) {
@@ -344,27 +432,72 @@ function App() {
     } catch (e: any) { alert(e); }
   };
 
+  const LEVEL_COLORS: Record<string, string> = {
+    V: "#8e8e93", D: "#32ade6", I: "#10a37f", W: "#ff9f0a", E: "#ff453a", F: "#ff453a",
+  };
+  const LEVEL_BADGES: Record<string, { bg: string; label: string }> = {
+    V: { bg: "rgba(142,142,147,0.2)", label: "VRB" },
+    D: { bg: "rgba(50,173,230,0.15)", label: "DBG" },
+    I: { bg: "rgba(16,163,127,0.15)", label: "INF" },
+    W: { bg: "rgba(255,159,10,0.15)", label: "WRN" },
+    E: { bg: "rgba(255,69,58,0.15)", label: "ERR" },
+    F: { bg: "rgba(255,69,58,0.25)", label: "FTL" },
+  };
+
   const LogRow = (props: any) => {
     const { index, style, ariaAttributes } = props;
     const log = filteredLogs[index];
-    const lvl = getLevel(log) || "V";
-    let color = "#10a37f";
-    if (lvl === "E" || lvl === "F") color = "#ff453a";
-    else if (lvl === "W") color = "#ff9f0a";
-    else if (lvl === "D") color = "#32ade6";
-    else if (lvl === "V") color = "#8e8e93";
-
+    const parsed = parseLogLine(log);
+    const lvl = parsed?.level || getLevel(log) || "V";
+    const color = LEVEL_COLORS[lvl] || "#8e8e93";
+    const badge = LEVEL_BADGES[lvl] || LEVEL_BADGES.V;
     const isCrash = log.includes("FATAL EXCEPTION") || log.includes("AndroidRuntime");
+    const isAppTag = packageFilter && parsed?.tag?.toLowerCase().includes(packageFilter.split(".").pop()?.toLowerCase() || "");
+
+    if (!parsed) {
+      // Unparseable line (continuation, stack trace, etc.) — render raw
+      return (
+        <div {...ariaAttributes} style={{
+          ...style, whiteSpace: "nowrap", overflow: "hidden", color: "#a0a0a5", textOverflow: "ellipsis",
+          fontFamily: "'SF Mono', Consolas, monospace", padding: "0 15px 0 95px", fontSize: "12px",
+          lineHeight: "22px", userSelect: "text", WebkitUserSelect: "text",
+          backgroundColor: isCrash ? "rgba(255,59,48,0.1)" : "transparent",
+          borderLeft: isCrash ? "3px solid #ff453a" : "3px solid transparent",
+        }}>
+          {log}
+        </div>
+      );
+    }
 
     return (
       <div {...ariaAttributes} style={{
-        ...style, whiteSpace: "nowrap", overflow: "hidden", color, textOverflow: "ellipsis",
+        ...style, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
         fontFamily: "'SF Mono', Consolas, monospace", padding: "0 15px", fontSize: "12px",
         lineHeight: "22px", userSelect: "text", WebkitUserSelect: "text",
-        backgroundColor: isCrash ? "rgba(255,59,48,0.15)" : "transparent",
-        borderLeft: isCrash ? "3px solid #ff453a" : "3px solid transparent",
+        display: "flex", alignItems: "center", gap: "0",
+        backgroundColor: isCrash ? "rgba(255,59,48,0.1)" : (lvl === "E" || lvl === "F") ? "rgba(255,69,58,0.04)" : "transparent",
+        borderLeft: isCrash ? "3px solid #ff453a" : `3px solid transparent`,
       }}>
-        {log}
+        {/* Time */}
+        <span style={{ color: "#636366", minWidth: "82px", flexShrink: 0, fontSize: "11px" }}>
+          {parsed.time.split(" ").pop()}
+        </span>
+        {/* Level badge */}
+        <span style={{
+          minWidth: "32px", textAlign: "center", fontSize: "9px", fontWeight: 700,
+          color, backgroundColor: badge.bg, borderRadius: "3px", padding: "1px 4px",
+          marginRight: "8px", flexShrink: 0, letterSpacing: "0.5px",
+        }}>{badge.label}</span>
+        {/* Tag */}
+        <span style={{
+          color: isAppTag ? "#bf5af2" : "#8e8e93", minWidth: "120px", maxWidth: "180px",
+          overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0, fontSize: "11px",
+          fontWeight: isAppTag ? 600 : 400,
+        }} title={parsed.tag}>{parsed.tag}</span>
+        {/* Message */}
+        <span style={{ color, flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+          {parsed.message}
+        </span>
       </div>
     );
   };
@@ -459,31 +592,83 @@ function App() {
       {/* TAB: DEBUG LOG */}
       {activeTab === "Debug Log" && (
         <div style={{ ...STYLES.card, flex: 1, display: "flex", flexDirection: "column", padding: "16px", minHeight: 0 }}>
-          <div style={{ ...STYLES.row, marginBottom: "8px" }}>
-            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-              <span style={{ ...STYLES.label, fontWeight: 700 }}>Search:</span>
-              <input placeholder={useRegex ? "Regex pattern..." : "Keyword..."} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...STYLES.input, width: "140px", flex: "none" }} />
-              <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", cursor: "pointer", color: useRegex ? "#0071e3" : "#86868b" }}>
-                <input type="checkbox" checked={useRegex} onChange={() => setUseRegex(!useRegex)} /> Regex
+          {/* Row 1: Search + Package + Actions */}
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <span style={{ ...STYLES.label, fontWeight: 700, fontSize: "12px" }}>🔍</span>
+              <input placeholder={useRegex ? "Regex pattern..." : "Search logs..."} value={filter} onChange={(e) => { setFilter(e.target.value); setActivePreset(null); }} style={{ ...STYLES.input, width: "160px", flex: "none", fontSize: "12px", padding: "6px 10px" }} />
+              <label style={{ display: "flex", alignItems: "center", gap: "3px", fontSize: "10px", cursor: "pointer", color: useRegex ? "#0071e3" : "#86868b", fontWeight: 600 }}>
+                <input type="checkbox" checked={useRegex} onChange={() => setUseRegex(!useRegex)} style={{ width: "12px", height: "12px" }} /> Regex
               </label>
-              <span style={{ ...STYLES.label, fontWeight: 700, marginLeft: "10px" }}>Package:</span>
-              <input placeholder="com.example.app" value={packageFilter} onChange={(e) => setPackageFilter(e.target.value)} style={{ ...STYLES.input, width: "160px", flex: "none" }} />
             </div>
+            <div style={{ borderLeft: "1px solid #d2d2d7", height: "20px" }} />
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <span style={{ fontSize: "12px", fontWeight: 700, color: "#86868b" }}>📦</span>
+              <input placeholder="com.example.app" value={packageFilter} onChange={(e) => setPackageFilter(e.target.value)} style={{ ...STYLES.input, width: "170px", flex: "none", fontSize: "12px", padding: "6px 10px" }} />
+            </div>
+            <div style={{ marginLeft: "auto", display: "flex", gap: "6px" }}>
+              <button style={{ ...STYLES.button, padding: "5px 10px", fontSize: "11px", color: "#ff453a", border: "1px solid rgba(255,69,58,0.3)" }} onClick={() => { setLogs([]); setCrashDetected([]); }}>Clear</button>
+              <button style={{ ...STYLES.button, padding: "5px 10px", fontSize: "11px" }} onClick={() => { navigator.clipboard.writeText(filteredLogs.join("\n")); alert("Copied!"); }}>Copy</button>
+              <button style={{ ...STYLES.button, padding: "5px 10px", fontSize: "11px" }} onClick={saveLogs}>💾 Save</button>
+            </div>
+          </div>
 
-            <div style={{ display: "flex", gap: "12px", marginLeft: "15px" }}>
-              {Object.entries(levels).map(([lvl, enabled]) => (
-                <label key={lvl} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "12px", fontWeight: 600 }}>
-                  <input type="checkbox" checked={enabled} onChange={() => toggleLevel(lvl)} />
-                  <span style={{ color: lvl === "E" ? "#ff453a" : lvl === "W" ? "#ff9f0a" : "#1d1d1f" }}>{lvl}</span>
-                </label>
+          {/* Row 2: Presets + Level toggles + Noise filter */}
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "10px", flexWrap: "wrap" }}>
+            {/* Quick Presets */}
+            <div style={{ display: "flex", gap: "4px", backgroundColor: "rgba(118,118,128,0.08)", padding: "3px", borderRadius: "8px" }}>
+              {([["errors", "🔴 Errors"], ["warnings", "🟡 Warnings"], ["network", "🌐 Network"], ["lifecycle", "🔄 Lifecycle"]] as const).map(([id, label]) => (
+                <button key={id} onClick={() => applyPreset(id)} style={{
+                  padding: "4px 10px", border: "none", borderRadius: "6px", fontSize: "10px", fontWeight: 600, cursor: "pointer",
+                  backgroundColor: activePreset === id ? "#0071e3" : "transparent",
+                  color: activePreset === id ? "#fff" : "#86868b",
+                  transition: "all 0.15s",
+                }}>{label}</button>
               ))}
             </div>
-
-            <div style={{ marginLeft: "auto", display: "flex", gap: "8px" }}>
-              <button style={{ ...STYLES.button, color: "#ff453a", border: "1px solid rgba(255,69,58,0.3)" }} onClick={() => { setLogs([]); setCrashDetected([]); }}>Clear</button>
-              <button style={STYLES.button} onClick={() => { navigator.clipboard.writeText(filteredLogs.join("\n")); alert("Copied!"); }}>Copy</button>
-              <button style={STYLES.button} onClick={saveLogs}>💾 Save</button>
+            <div style={{ borderLeft: "1px solid #d2d2d7", height: "20px" }} />
+            {/* Level toggles */}
+            <div style={{ display: "flex", gap: "6px" }}>
+              {Object.entries(levels).map(([lvl, enabled]) => (
+                <button key={lvl} onClick={() => { toggleLevel(lvl); setActivePreset(null); }} style={{
+                  padding: "3px 8px", border: "none", borderRadius: "5px", fontSize: "10px", fontWeight: 700, cursor: "pointer",
+                  backgroundColor: enabled
+                    ? (lvl === "E" || lvl === "F" ? "rgba(255,69,58,0.15)" : lvl === "W" ? "rgba(255,159,10,0.15)" : lvl === "I" ? "rgba(16,163,127,0.15)" : lvl === "D" ? "rgba(50,173,230,0.15)" : "rgba(142,142,147,0.12)")
+                    : "rgba(0,0,0,0.04)",
+                  color: enabled
+                    ? (lvl === "E" || lvl === "F" ? "#ff453a" : lvl === "W" ? "#ff9f0a" : lvl === "I" ? "#10a37f" : lvl === "D" ? "#32ade6" : "#8e8e93")
+                    : "#c7c7cc",
+                  transition: "all 0.15s",
+                }}>{lvl}</button>
+              ))}
             </div>
+            <div style={{ borderLeft: "1px solid #d2d2d7", height: "20px" }} />
+            {/* Noise filter */}
+            <button onClick={() => setHideNoise(!hideNoise)} style={{
+              padding: "4px 10px", border: "none", borderRadius: "6px", fontSize: "10px", fontWeight: 600, cursor: "pointer",
+              backgroundColor: hideNoise ? "rgba(52,199,89,0.12)" : "rgba(0,0,0,0.04)",
+              color: hideNoise ? "#34c759" : "#86868b", transition: "all 0.15s",
+            }}>{hideNoise ? "🧹 Noise Hidden" : "📢 Show All"}</button>
+
+            {/* Live stats */}
+            <div style={{ marginLeft: "auto", display: "flex", gap: "10px", fontSize: "10px", fontWeight: 600, color: "#86868b" }}>
+              <span style={{ color: "#ff453a" }}>● {logStats.errors} errors</span>
+              <span style={{ color: "#ff9f0a" }}>● {logStats.warnings} warns</span>
+              <span style={{ color: "#10a37f" }}>● {logStats.info} info</span>
+              <span style={{ color: "#86868b" }}>{filteredLogs.length} total</span>
+            </div>
+          </div>
+
+          {/* Column header */}
+          <div style={{
+            display: "flex", gap: "0", padding: "4px 15px", fontSize: "9px", fontWeight: 700, color: "#86868b",
+            textTransform: "uppercase", letterSpacing: "0.5px", borderBottom: "1px solid rgba(0,0,0,0.06)",
+            fontFamily: "'SF Mono', Consolas, monospace", marginBottom: "2px",
+          }}>
+            <span style={{ minWidth: "82px" }}>Time</span>
+            <span style={{ minWidth: "32px", marginRight: "8px", textAlign: "center" }}>Lvl</span>
+            <span style={{ minWidth: "120px", maxWidth: "180px" }}>Tag</span>
+            <span style={{ flex: 1 }}>Message</span>
           </div>
 
           <div style={STYLES.terminal} ref={terminalRef}>
