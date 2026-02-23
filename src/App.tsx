@@ -1,102 +1,23 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { List, ListImperativeAPI } from "react-window";
+import { STYLES } from "./styles";
+import DeviceProfiler from "./DeviceProfiler";
+import FileExplorer from "./FileExplorer";
+import AppManager from "./AppManager";
 
-// ================= PREMIUM APPLE STYLE CSS ================= //
-const STYLES = {
-  container: {
-    padding: "24px", display: "flex", flexDirection: "column" as const, height: "100vh",
-    boxSizing: "border-box" as const, backgroundColor: "#f5f5f7",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif",
-    overflow: "hidden"
-  },
-  card: {
-    backgroundColor: "rgba(255, 255, 255, 0.7)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
-    padding: "20px", borderRadius: "16px", boxShadow: "0 4px 14px rgba(0,0,0,0.04), 0 1px 4px rgba(0,0,0,0.02)",
-    border: "1px solid rgba(255,255,255,0.4)"
-  },
-  cardTitle: {
-    fontSize: "14px", fontWeight: 600, color: "#86868b", textTransform: "uppercase" as const,
-    letterSpacing: "0.5px", marginBottom: "16px"
-  },
-  row: {
-    display: "flex", alignItems: "center", flexWrap: "wrap" as const, gap: "10px", marginBottom: "12px"
-  },
-  button: {
-    padding: "8px 16px", backgroundColor: "#fff", border: "1px solid #d2d2d7", borderRadius: "8px",
-    cursor: "pointer", fontSize: "13px", color: "#1d1d1f", fontWeight: 500,
-    boxShadow: "0 1px 2px rgba(0,0,0,0.02)", transition: "all 0.15s ease",
-  },
-  buttonPrimary: {
-    padding: "8px 16px", backgroundColor: "#0071e3", border: "1px solid #0071e3", borderRadius: "8px",
-    cursor: "pointer", fontSize: "13px", color: "#fff", fontWeight: 500,
-    boxShadow: "0 2px 4px rgba(0,113,227,0.2)", transition: "all 0.15s ease",
-  },
-  buttonDanger: {
-    padding: "8px 16px", backgroundColor: "#fff", border: "1px solid #ff3b30", borderRadius: "8px",
-    cursor: "pointer", fontSize: "13px", color: "#ff3b30", fontWeight: 500,
-    transition: "all 0.15s ease",
-  },
-  buttonSuccess: {
-    padding: "8px 16px", backgroundColor: "#34c759", border: "1px solid #34c759", borderRadius: "8px",
-    cursor: "pointer", fontSize: "13px", color: "#fff", fontWeight: 500,
-    boxShadow: "0 2px 4px rgba(52,199,89,0.2)", transition: "all 0.15s ease",
-  },
-  buttonMirror: {
-    padding: "8px 16px", backgroundColor: "#5e5ce6", border: "1px solid #5e5ce6", borderRadius: "8px",
-    cursor: "pointer", fontSize: "13px", color: "#fff", fontWeight: 600,
-    boxShadow: "0 2px 4px rgba(94,92,230,0.2)", transition: "all 0.15s ease", display: "flex", alignItems: "center", gap: "6px"
-  },
-  input: {
-    padding: "8px 12px", border: "1px solid #d2d2d7", borderRadius: "8px", fontSize: "13px",
-    flex: 1, minWidth: "150px", outline: "none", color: "#1d1d1f", backgroundColor: "rgba(255,255,255,0.8)",
-    transition: "box-shadow 0.2s ease"
-  },
-  label: {
-    fontSize: "13px", color: "#1d1d1f", fontWeight: 500
-  },
-  terminal: {
-    flex: 1, backgroundColor: "#1e1e1e", border: "1px solid rgba(0,0,0,0.2)", borderRadius: "12px",
-    overflow: "hidden", marginTop: "10px", boxShadow: "inset 0 2px 10px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.1)"
-  },
-  buildOverlay: {
-    position: "fixed" as const, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.4)",
-    backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-    display: "flex", justifyContent: "center", alignItems: "center", zIndex: 9999
-  },
-  buildModal: {
-    width: "70%", height: "70%", backgroundColor: "rgba(30,30,30,0.9)", backdropFilter: "blur(20px)",
-    borderRadius: "16px", display: "flex", flexDirection: "column" as const, overflow: "hidden",
-    border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 20px 40px rgba(0,0,0,0.3)"
-  },
-  buildHeader: {
-    padding: "16px 20px", backgroundColor: "rgba(0,0,0,0.3)", borderBottom: "1px solid rgba(255,255,255,0.1)",
-    display: "flex", justifyContent: "space-between", alignItems: "center"
-  },
-  buildLogsView: {
-    flex: 1, padding: "20px", overflowY: "auto" as const, color: "#f5f5f7", fontFamily: "'SF Mono', Consolas, monospace",
-    fontSize: "13px", lineHeight: "1.6"
-  },
-  tabContainer: {
-    display: "flex", gap: "4px", backgroundColor: "rgba(118,118,128,0.12)", padding: "4px", borderRadius: "10px", marginBottom: "20px", width: "fit-content"
-  },
-  tabButton: {
-    padding: "8px 24px", border: "none", borderRadius: "8px", fontSize: "14px", fontWeight: 600, cursor: "pointer",
-    backgroundColor: "transparent", color: "#86868b", transition: "all 0.2s ease"
-  },
-  tabButtonActive: {
-    backgroundColor: "#fff", color: "#1d1d1f", boxShadow: "0 3px 8px rgba(0,0,0,0.12), 0 3px 1px rgba(0,0,0,0.04)"
-  }
-};
+const TABS = ["Debug Log", "App Manager", "Profiler", "File Explorer", "Device Tools"];
 
 function App() {
   const [activeTab, setActiveTab] = useState("Debug Log");
   const [logs, setLogs] = useState<string[]>([]);
   const [filter, setFilter] = useState("");
+  const [useRegex, setUseRegex] = useState(false);
   const [packageFilter, setPackageFilter] = useState("");
   const [levels, setLevels] = useState({ V: true, D: true, I: true, W: true, E: true, F: true });
+  const [crashDetected, setCrashDetected] = useState<string[]>([]);
 
   const [deviceList, setDeviceList] = useState<string[]>([]);
   const [selectedDevices, setSelectedDevices] = useState<string[]>([]);
@@ -112,9 +33,14 @@ function App() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [buildTitle, setBuildTitle] = useState("⚙️ Running Task in background...");
 
+  // Screen recording state
+  const [isRecording, setIsRecording] = useState(false);
+
   const listRef = useRef<ListImperativeAPI>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
   const buildLogsBottomRef = useRef<HTMLDivElement>(null);
+  // Track the device we're currently listening to, to avoid duplicate logcat starts
+  const logcatDeviceRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (isBuilding && buildLogsBottomRef.current) {
@@ -122,7 +48,7 @@ function App() {
     }
   }, [buildLogs, isBuilding]);
 
-  const scanApks = async (path: string) => {
+  const scanApks = useCallback(async (path: string) => {
     if (!path) { setFoundApks([]); return; }
     try {
       const paths = await invoke<string[]>("scan_apks", { projectPath: path });
@@ -130,8 +56,8 @@ function App() {
         const parts = p.split('/');
         return { path: p, name: parts[parts.length - 1] };
       }));
-    } catch (e) { setFoundApks([]); }
-  };
+    } catch { setFoundApks([]); }
+  }, []);
 
   useEffect(() => {
     scanApks(projectPath);
@@ -139,63 +65,117 @@ function App() {
       localStorage.setItem("adb-debugger-project", projectPath);
       invoke<string>("get_package_name", { projectPath }).then(pkg => { if (pkg) setPackageFilter(pkg); }).catch(console.warn);
     }
-  }, [projectPath]);
+  }, [projectPath, scanApks]);
 
+  // Properly restart logcat when selected device changes
   useEffect(() => {
-    setLogs([]);
-    invoke("start_logcat", { deviceId: selectedDevices.length > 0 ? selectedDevices[0] : null });
-    const unlisten = listen("logcat", (event: any) => {
-      setLogs((prev) => [...prev, event.payload].slice(-10000));
-    });
-    return () => { unlisten.then((f) => f()); };
-  }, [selectedDevices]);
+    const targetDevice = selectedDevices.length > 0 ? selectedDevices[0] : null;
 
-  const fetchDevices = async () => {
+    // Clear old logs on device switch
+    setLogs([]);
+    setCrashDetected([]);
+    logcatDeviceRef.current = targetDevice;
+
+    // Stop existing logcat first, then start new one
+    invoke("stop_logcat").catch(() => { }).then(() => {
+      if (targetDevice) {
+        invoke("start_logcat", { deviceId: targetDevice });
+      }
+    });
+
+    const unlisten = listen("logcat", (event: any) => {
+      const line: string = event.payload;
+      setLogs((prev) => [...prev, line].slice(-10000));
+
+      // Crash detection: look for FATAL EXCEPTION or ANR
+      if (line.includes("FATAL EXCEPTION") || (line.includes("AndroidRuntime") && line.includes("Error"))) {
+        setCrashDetected(prev => [...prev, line].slice(-20));
+      }
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+    // Use JSON serialization as dependency to detect actual content changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDevices.join(",")]);
+
+  const fetchDevices = useCallback(async () => {
     try {
       const res = await invoke<string>("get_devices");
       const lines = res.split("\n").map(l => l.trim()).filter(l => l);
       const devs: string[] = [];
       for (let i = 1; i < lines.length; i++) {
         const parts = lines[i].split("\t");
-        if (parts.length > 0 && parts[0]) devs.push(parts[0]);
+        if (parts.length > 0 && parts[0] && parts[1]?.includes("device")) devs.push(parts[0]);
       }
       setDeviceList(devs);
-      if (selectedDevices.length === 0 && devs.length > 0) setSelectedDevices([devs[0]]);
+
+      // KEY FIX: Prune stale device IDs that are no longer connected
+      setSelectedDevices(prev => {
+        const stillConnected = prev.filter(d => devs.includes(d));
+        // If all previously selected devices are gone, auto-select the first available
+        if (stillConnected.length === 0 && devs.length > 0) {
+          return [devs[0]];
+        }
+        return stillConnected;
+      });
     } catch { setDeviceList([]); }
-  };
+  }, []);
+
+  // Auto-fetch devices on mount + poll every 3 seconds
+  useEffect(() => {
+    fetchDevices();
+    const interval = setInterval(fetchDevices, 3000);
+    return () => clearInterval(interval);
+  }, [fetchDevices]);
 
   const connectAdb = async () => {
     if (!ipAddress) return;
     try {
       alert(await invoke<string>("adb_connect", { ip: ipAddress }));
       fetchDevices();
-    } catch (e: any) { alert("Error: " + e); }
+    } catch (e: any) { alert("Error: " + (typeof e === "string" ? e : JSON.stringify(e))); }
   };
 
   const autoConnectWireless = async () => {
     try {
       alert("Scan Results:\n\n" + await invoke<string>("auto_connect_wireless"));
       fetchDevices();
-    } catch (e: any) { alert("Error: " + e); }
+    } catch (e: any) { alert("Error: " + (typeof e === "string" ? e : JSON.stringify(e))); }
   };
 
+  // BUG FIX: Proper error handling for scrcpy (e may be object, not string)
   const startScrcpy = async () => {
     try {
-      await invoke("start_scrcpy", { deviceId: selectedDevices.length > 0 ? selectedDevices[0] : null });
+      const dev = selectedDevices.length > 0 ? selectedDevices[0] : null;
+      await invoke("start_scrcpy", { deviceId: dev });
     } catch (e: any) {
-      if (e.includes("ensure scrcpy is installed")) {
-        if (window.confirm("scrcpy is not installed. Auto install now?")) installScrcpy();
-      } else alert(e);
+      const errMsg = typeof e === "string" ? e : (e?.message || JSON.stringify(e));
+      if (errMsg.toLowerCase().includes("ensure scrcpy is installed") || errMsg.toLowerCase().includes("failed to start scrcpy")) {
+        if (window.confirm("scrcpy is not installed or failed to start. Auto install now?")) installScrcpy();
+      } else {
+        alert("Error: " + errMsg);
+      }
     }
   };
 
   const takeScreenshot = async () => {
     try {
       const dev = selectedDevices.length > 0 ? selectedDevices[0] : null;
+      // Ask to save to file
       const savePath = await save({ defaultPath: 'screenshot.png', filters: [{ name: 'Image', extensions: ['png'] }] });
-      if (!savePath) return;
-      alert(await invoke("take_screenshot", { deviceId: dev, savePath }));
-    } catch (e: any) { alert("Error: " + e); }
+      // Take screenshot — returns base64 data URI
+      const dataUri = await invoke<string>("take_screenshot", { deviceId: dev, savePath: savePath || null });
+      // Copy to clipboard
+      try {
+        const resp = await fetch(dataUri);
+        const blob = await resp.blob();
+        await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+        alert(savePath ? "Screenshot saved & copied to clipboard!" : "Screenshot copied to clipboard!");
+      } catch {
+        alert(savePath ? "Screenshot saved! (Clipboard copy failed)" : "Screenshot taken but clipboard copy failed.");
+      }
+    } catch (e: any) { alert("Error: " + (typeof e === "string" ? e : JSON.stringify(e))); }
   };
 
   const sendInputText = async () => {
@@ -204,22 +184,7 @@ function App() {
       await invoke("input_text", { text: inputText, deviceIds: selectedDevices });
       alert("Input sent!");
       setInputText("");
-    } catch (e: any) { alert(e); }
-  };
-
-  const forceStopApp = async () => {
-    if (!packageFilter) return alert("Enter Package name first.");
-    try {
-      alert(await invoke("force_stop_app", { packageName: packageFilter, deviceIds: selectedDevices }));
-    } catch (e: any) { alert(e); }
-  };
-
-  const clearAppData = async () => {
-    if (!packageFilter) return alert("Enter Package name first.");
-    if (!window.confirm(`Wipe user data completely for ${packageFilter}?`)) return;
-    try {
-      alert(await invoke("clear_app_data", { packageName: packageFilter, deviceIds: selectedDevices }));
-    } catch (e: any) { alert(e); }
+    } catch (e: any) { alert(typeof e === "string" ? e : JSON.stringify(e)); }
   };
 
   const installScrcpy = async () => {
@@ -259,9 +224,7 @@ function App() {
         setBuildTitle("❌ Build Failed");
       }
     });
-    try {
-      await invoke("build_apk", { projectPath, buildType: type });
-    } catch (e: any) {
+    try { await invoke("build_apk", { projectPath, buildType: type }); } catch (e: any) {
       setBuildLogs(prev => [...prev, "❌ Error: " + e]);
       setBuildTitle("❌ Build Error");
     }
@@ -287,7 +250,7 @@ function App() {
       if (res.includes("INSTALL_FAILED_UPDATE_INCOMPATIBLE") || res.includes("signatures do not match")) {
         setIsInstalling(false);
         if (window.confirm("Signatures don't match. Auto-uninstall and retry?")) {
-          if (!packageFilter) alert("Need Package Name in string field to uninstall.");
+          if (!packageFilter) alert("Need Package Name to uninstall.");
           else {
             setIsInstalling(true);
             const uninstallRes = await invoke<string>("uninstall_apk", { packageName: packageFilter, deviceIds: selectedDevices });
@@ -297,6 +260,35 @@ function App() {
         }
       } else alert("Installed:\n" + res);
     } catch (e: any) { alert("Error: " + e); } finally { setIsInstalling(false); }
+  };
+
+  // Screen recording — stop is ALWAYS decoupled from save
+  const toggleRecording = async () => {
+    const dev = selectedDevices.length > 0 ? selectedDevices[0] : null;
+    if (isRecording) {
+      // Step 1: Always stop the recording first
+      setIsRecording(false);
+      try {
+        await invoke<string>("stop_screen_record", { deviceId: dev });
+      } catch (e: any) {
+        console.warn("Stop signal error (may already be stopped):", e);
+      }
+      // Step 2: Ask to save (optional)
+      const savePath = await save({ defaultPath: "recording.mp4", filters: [{ name: "Video", extensions: ["mp4"] }] });
+      if (savePath) {
+        try {
+          const res = await invoke<string>("pull_recording", { deviceId: dev, savePath });
+          alert(res);
+        } catch (e: any) { alert("Error pulling recording: " + (typeof e === "string" ? e : JSON.stringify(e))); }
+      } else {
+        alert("Recording stopped. File not saved (still on device at /sdcard/adb_studio_recording.mp4)");
+      }
+    } else {
+      try {
+        await invoke<string>("start_screen_record", { deviceId: dev });
+        setIsRecording(true);
+      } catch (e: any) { alert("Error: " + (typeof e === "string" ? e : JSON.stringify(e))); }
+    }
   };
 
   const getLevel = (log: string) => {
@@ -309,15 +301,25 @@ function App() {
   };
 
   const filteredLogs = useMemo(() => {
+    let regexObj: RegExp | null = null;
+    if (useRegex && filter) {
+      try { regexObj = new RegExp(filter, "i"); } catch { regexObj = null; }
+    }
+
     return logs.filter((log) => {
-      if (!packageFilter && activeTab === "Debug Log") return true; // Show all logs if no app package selected
       if (packageFilter && !log.toLowerCase().includes(packageFilter.toLowerCase())) return false;
-      if (filter && !log.toLowerCase().includes(filter.toLowerCase())) return false;
+      if (filter) {
+        if (useRegex && regexObj) {
+          if (!regexObj.test(log)) return false;
+        } else {
+          if (!log.toLowerCase().includes(filter.toLowerCase())) return false;
+        }
+      }
       const lvl = getLevel(log) || "V";
       if (lvl && !(levels as any)[lvl]) return false;
       return true;
     });
-  }, [logs, packageFilter, filter, levels, activeTab]);
+  }, [logs, packageFilter, filter, levels, useRegex]);
 
   const handleScroll = ({ scrollOffset, scrollUpdateWasRequested }: any) => {
     if (!scrollUpdateWasRequested && terminalRef.current) {
@@ -333,6 +335,15 @@ function App() {
     }
   }, [filteredLogs.length, autoScroll]);
 
+  const saveLogs = async () => {
+    const path = await save({ defaultPath: "logcat.txt", filters: [{ name: "Text", extensions: ["txt", "log"] }] });
+    if (!path) return;
+    try {
+      await invoke("save_logs", { logs: filteredLogs.join("\n"), path });
+      alert("Logs saved!");
+    } catch (e: any) { alert(e); }
+  };
+
   const LogRow = (props: any) => {
     const { index, style, ariaAttributes } = props;
     const log = filteredLogs[index];
@@ -343,8 +354,16 @@ function App() {
     else if (lvl === "D") color = "#32ade6";
     else if (lvl === "V") color = "#8e8e93";
 
+    const isCrash = log.includes("FATAL EXCEPTION") || log.includes("AndroidRuntime");
+
     return (
-      <div {...ariaAttributes} style={{ ...style, whiteSpace: "nowrap", overflow: "hidden", color, textOverflow: "ellipsis", fontFamily: "'SF Mono', Consolas, monospace", padding: "0 15px", fontSize: "12px", lineHeight: "22px", userSelect: "text", WebkitUserSelect: "text" }}>
+      <div {...ariaAttributes} style={{
+        ...style, whiteSpace: "nowrap", overflow: "hidden", color, textOverflow: "ellipsis",
+        fontFamily: "'SF Mono', Consolas, monospace", padding: "0 15px", fontSize: "12px",
+        lineHeight: "22px", userSelect: "text", WebkitUserSelect: "text",
+        backgroundColor: isCrash ? "rgba(255,59,48,0.15)" : "transparent",
+        borderLeft: isCrash ? "3px solid #ff453a" : "3px solid transparent",
+      }}>
         {log}
       </div>
     );
@@ -375,20 +394,21 @@ function App() {
           <div style={{ ...STYLES.buildModal, width: "320px", height: "auto", padding: "30px", alignItems: "center", justifyContent: "center" }}>
             <div style={{ width: "40px", height: "40px", border: "4px solid rgba(255,255,255,0.1)", borderTop: "4px solid #fff", borderRadius: "50%", animation: "spin 1s linear infinite", marginBottom: "20px" }} />
             <span style={{ color: "#fff", fontWeight: 600, fontSize: "16px" }}>Installing on Devices...</span>
-            <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } input:focus, button:hover { opacity: 0.9; }`}</style>
           </div>
         </div>
       )}
 
-      {/* HEADER & PERSISTENT CONNECTIVITY BAR */}
+      <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } input:focus, button:hover { opacity: 0.9; }`}</style>
+
+      {/* HEADER */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
         <h2 style={{ margin: 0, fontSize: "28px", color: "#1d1d1f", fontWeight: 700, letterSpacing: "-0.5px" }}>ADB Studio ⚡</h2>
       </div>
 
+      {/* CONNECTIVITY BAR */}
       <div style={{ ...STYLES.card, padding: "12px 20px", marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
           <button style={STYLES.button} onClick={fetchDevices}>↻ Refresh</button>
-
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <span style={{ fontSize: "13px", fontWeight: 600, color: "#86868b" }}>DEVICES:</span>
             {deviceList.length > 0 ? deviceList.map((d) => (
@@ -401,9 +421,7 @@ function App() {
               </label>
             )) : <span style={{ fontSize: "13px", color: "#86868b" }}>-- None --</span>}
           </div>
-
-          <div style={{ borderLeft: "1px solid #d2d2d7", height: "24px", margin: "0 4px" }}></div>
-
+          <div style={{ borderLeft: "1px solid #d2d2d7", height: "24px", margin: "0 4px" }} />
           <input placeholder="IP:Port (192.168.1.5:5555)" value={ipAddress} onChange={e => setIpAddress(e.target.value)} style={{ ...STYLES.input, flex: "none", width: "180px" }} />
           <button style={STYLES.buttonPrimary} onClick={connectAdb}>Connect</button>
           <button style={STYLES.button} onClick={autoConnectWireless}>Scan Local</button>
@@ -412,24 +430,42 @@ function App() {
 
       {/* TABS */}
       <div style={STYLES.tabContainer}>
-        {["Debug Log", "App Manager", "Device Tools"].map(tab => (
-          <button
-            key={tab}
-            style={{ ...STYLES.tabButton, ...(activeTab === tab ? STYLES.tabButtonActive : {}) }}
-            onClick={() => setActiveTab(tab)}
-          >
+        {TABS.map(tab => (
+          <button key={tab} style={{ ...STYLES.tabButton, ...(activeTab === tab ? STYLES.tabButtonActive : {}) }} onClick={() => setActiveTab(tab)}>
             {tab}
           </button>
         ))}
       </div>
 
-      {/* TAB CONTENT - LOGCAT */}
+      {/* CRASH BANNER */}
+      {crashDetected.length > 0 && activeTab === "Debug Log" && (
+        <div style={{
+          backgroundColor: "rgba(255,59,48,0.1)", border: "1px solid rgba(255,59,48,0.3)", borderRadius: "10px",
+          padding: "10px 16px", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center"
+        }}>
+          <span style={{ fontSize: "13px", color: "#ff3b30", fontWeight: 600 }}>
+            🚨 {crashDetected.length} crash/fatal event(s) detected
+          </span>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button style={{ ...STYLES.button, padding: "4px 10px", fontSize: "11px" }} onClick={() => {
+              navigator.clipboard.writeText(crashDetected.join("\n"));
+              alert("Stack trace copied!");
+            }}>📋 Copy Stack Trace</button>
+            <button style={{ ...STYLES.button, padding: "4px 10px", fontSize: "11px", color: "#86868b" }} onClick={() => setCrashDetected([])}>Dismiss</button>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: DEBUG LOG */}
       {activeTab === "Debug Log" && (
         <div style={{ ...STYLES.card, flex: 1, display: "flex", flexDirection: "column", padding: "16px", minHeight: 0 }}>
           <div style={{ ...STYLES.row, marginBottom: "8px" }}>
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-              <span style={{ ...STYLES.label, fontWeight: 700 }}>Search Logs:</span>
-              <input placeholder="Keyword..." value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...STYLES.input, width: "140px", flex: "none" }} />
+              <span style={{ ...STYLES.label, fontWeight: 700 }}>Search:</span>
+              <input placeholder={useRegex ? "Regex pattern..." : "Keyword..."} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...STYLES.input, width: "140px", flex: "none" }} />
+              <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", cursor: "pointer", color: useRegex ? "#0071e3" : "#86868b" }}>
+                <input type="checkbox" checked={useRegex} onChange={() => setUseRegex(!useRegex)} /> Regex
+              </label>
               <span style={{ ...STYLES.label, fontWeight: 700, marginLeft: "10px" }}>Package:</span>
               <input placeholder="com.example.app" value={packageFilter} onChange={(e) => setPackageFilter(e.target.value)} style={{ ...STYLES.input, width: "160px", flex: "none" }} />
             </div>
@@ -444,8 +480,9 @@ function App() {
             </div>
 
             <div style={{ marginLeft: "auto", display: "flex", gap: "8px" }}>
-              <button style={{ ...STYLES.button, color: "#ff453a", border: "1px solid rgba(255,69,58,0.3)" }} onClick={() => setLogs([])}>Clear View</button>
-              <button style={STYLES.button} onClick={() => { navigator.clipboard.writeText(filteredLogs.join("\n")); alert("Copied visible logs!"); }}>Copy View</button>
+              <button style={{ ...STYLES.button, color: "#ff453a", border: "1px solid rgba(255,69,58,0.3)" }} onClick={() => { setLogs([]); setCrashDetected([]); }}>Clear</button>
+              <button style={STYLES.button} onClick={() => { navigator.clipboard.writeText(filteredLogs.join("\n")); alert("Copied!"); }}>Copy</button>
+              <button style={STYLES.button} onClick={saveLogs}>💾 Save</button>
             </div>
           </div>
 
@@ -461,83 +498,58 @@ function App() {
         </div>
       )}
 
-      {/* TAB CONTENT - APP MANAGER */}
+      {/* TAB: APP MANAGER */}
       {activeTab === "App Manager" && (
-        <div style={{ ...STYLES.card, flex: 1, minHeight: 0, overflowY: "auto", display: "flex", justifyContent: "center" }}>
-          <div style={{ width: "100%", maxWidth: "800px", marginTop: "20px" }}>
-
-            <div style={STYLES.cardTitle}>📦 Development Project & Builder</div>
-            <div style={STYLES.row}>
-              <span style={STYLES.label}>Workspace:</span>
-              <input placeholder="Select Android project folder..." value={projectPath} onChange={(e) => setProjectPath(e.target.value)} style={{ ...STYLES.input, flex: 2, backgroundColor: "transparent", borderBottom: "1px solid #d2d2d7" }} readOnly />
-              <button style={STYLES.button} onClick={selectProject}>Browse Directory...</button>
-            </div>
-            <div style={{ ...STYLES.row, marginTop: "16px" }}>
-              <button style={STYLES.buttonPrimary} onClick={() => buildApk("debug")}>Build Debug APK</button>
-              <button style={STYLES.button} onClick={() => buildApk("release")}>Build Release APK</button>
-            </div>
-
-            {foundApks.length > 0 && (
-              <div style={{ marginTop: "24px", padding: "16px", border: "1px solid rgba(52,199,89,0.3)", borderRadius: "12px", backgroundColor: "rgba(52,199,89,0.05)" }}>
-                <span style={{ fontSize: "12px", fontWeight: 600, color: "#34c759", display: "block", marginBottom: "12px" }}>▶ QUICK INSTALL READY APKS</span>
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                  {foundApks.map((apk, i) => (
-                    <button key={i} style={STYLES.buttonSuccess} onClick={() => installApk(apk.path)} title={apk.path}>⬇ Install {apk.name}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div style={{ borderTop: "1px solid rgba(0,0,0,0.08)", margin: "32px 0 24px 0" }}></div>
-
-            <div style={STYLES.cardTitle}>🧹 Clean & Control Application</div>
-            <div style={{ ...STYLES.row, marginBottom: "16px" }}>
-              <span style={STYLES.label}>Target Package:</span>
-              <input placeholder="com.example.app" value={packageFilter} onChange={(e) => setPackageFilter(e.target.value)} style={{ ...STYLES.input, maxWidth: "300px" }} />
-            </div>
-            <div style={STYLES.row}>
-              <button style={STYLES.buttonDanger} onClick={forceStopApp} title="Kills the app process">Stop Process</button>
-              <button style={{ ...STYLES.buttonDanger, borderStyle: "dashed" }} onClick={clearAppData} title="Wipes all app data and cache like fresh install">Wipe Data & Cache</button>
-            </div>
-
-          </div>
-        </div>
+        <AppManager
+          selectedDevices={selectedDevices} packageFilter={packageFilter} setPackageFilter={setPackageFilter}
+          projectPath={projectPath} setProjectPath={setProjectPath}
+          buildApk={buildApk} selectProject={selectProject} installApk={installApk}
+          foundApks={foundApks} scanApks={scanApks}
+        />
       )}
 
-      {/* TAB CONTENT - DEVICE TOOLS */}
+      {/* TAB: PROFILER */}
+      {activeTab === "Profiler" && (
+        <DeviceProfiler selectedDevices={selectedDevices} packageFilter={packageFilter} />
+      )}
+
+      {/* TAB: FILE EXPLORER */}
+      {activeTab === "File Explorer" && (
+        <FileExplorer selectedDevices={selectedDevices} />
+      )}
+
+      {/* TAB: DEVICE TOOLS */}
       {activeTab === "Device Tools" && (
         <div style={{ ...STYLES.card, flex: 1, minHeight: 0, overflowY: "auto", display: "flex", justifyContent: "center" }}>
           <div style={{ width: "100%", maxWidth: "800px", display: "flex", flexDirection: "column", gap: "40px", marginTop: "20px" }}>
-
             <div>
-              <div style={STYLES.cardTitle}>📺 Display & Visuals</div>
-              <div style={STYLES.row}>
-                <button style={{ ...STYLES.buttonMirror, padding: "12px 24px", fontSize: "15px" }} onClick={startScrcpy} title="Requires scrcpy installed">
+              <div style={STYLES.cardTitle as any}>📺 Display & Visuals</div>
+              <div style={STYLES.row as any}>
+                <button style={{ ...STYLES.buttonMirror, padding: "12px 24px", fontSize: "15px" }} onClick={startScrcpy}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
                   Launch Screen Mirror
                 </button>
-                <button style={{ ...STYLES.button, padding: "12px 24px", fontSize: "15px" }} onClick={takeScreenshot}>
-                  📸 Take High-Res Screenshot
-                </button>
+                <button style={{ ...STYLES.button, padding: "12px 24px", fontSize: "15px" }} onClick={takeScreenshot}>📸 Screenshot</button>
+                <button
+                  style={{ ...(isRecording ? STYLES.buttonDanger : STYLES.button), padding: "12px 24px", fontSize: "15px" }}
+                  onClick={toggleRecording}
+                >{isRecording ? "⏹ Stop Recording" : "🔴 Record Screen"}</button>
               </div>
-              <p style={{ fontSize: "13px", color: "#86868b", marginTop: "10px", lineHeight: "1.5" }}>Mirror your device screen to your Mac with zero latency via <b>scrcpy</b>. Click "Take Screenshot" to instantly capture the current frame to your computer via ADB.</p>
+              <p style={{ fontSize: "13px", color: "#86868b", marginTop: "10px", lineHeight: "1.5" }}>
+                Mirror via <b>scrcpy</b>, take screenshots, or record screen video directly to your computer.
+              </p>
             </div>
-
-            <div style={{ borderTop: "1px solid rgba(0,0,0,0.08)" }}></div>
-
+            <div style={{ borderTop: "1px solid rgba(0,0,0,0.08)" }} />
             <div>
-              <div style={STYLES.cardTitle}>⌨️ Remote Input</div>
+              <div style={STYLES.cardTitle as any}>⌨️ Remote Input</div>
               <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                 <input placeholder="Type a long password or URL here..." value={inputText} onChange={e => setInputText(e.target.value)} style={{ ...STYLES.input, padding: "12px", fontSize: "14px" }} onKeyDown={(e) => e.key === 'Enter' && sendInputText()} />
                 <button style={{ ...STYLES.buttonPrimary, padding: "12px 24px" }} onClick={sendInputText}>Send to Device</button>
               </div>
-              <p style={{ fontSize: "13px", color: "#86868b", marginTop: "10px", lineHeight: "1.5" }}>Useful for quickly pasting long credentials, authentication tokens, or deep links directly into your connected Android Phone/Emulator without fighting the virtual keyboard.</p>
             </div>
-
           </div>
         </div>
       )}
-
     </div>
   );
 }

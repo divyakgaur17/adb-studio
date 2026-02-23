@@ -114,3 +114,8 @@ button {
     background-color: #0f0f0f69;
   }
 }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
