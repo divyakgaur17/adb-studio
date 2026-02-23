@@ -487,7 +487,26 @@ async fn take_screenshot(device_id: Option<String>, save_path: String) -> Result
     }
 }
 
+#[cfg(target_os = "macos")]
+fn sync_mac_env() {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    if let Ok(output) = Command::new(shell).args(["-ilc", "env"]).output() {
+        if let Ok(env_output) = String::from_utf8(output.stdout) {
+            for line in env_output.lines() {
+                if let Some((k, v)) = line.split_once('=') {
+                    if !k.trim().is_empty() {
+                        std::env::set_var(k.trim(), v.trim());
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn main() {
+    #[cfg(target_os = "macos")]
+    sync_mac_env();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(LogcatState(Mutex::new(None)))

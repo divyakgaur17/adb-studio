@@ -230,11 +230,17 @@ function App() {
     const unlistenDone = await listen("build_done", (event: any) => {
       unlistenLog(); unlistenDone();
       if (event.payload === "Success") {
-        alert("Installed successfully! You can mirror now.");
-        setIsBuilding(false);
-      } else alert("Installation failed.");
+        setBuildLogs(prev => [...prev, "✅ Installed successfully! You can mirror now."]);
+        setBuildTitle("✅ Installation Successful");
+      } else {
+        setBuildLogs(prev => [...prev, "❌ Installation Failed: " + event.payload]);
+        setBuildTitle("❌ Installation Failed");
+      }
     });
-    try { await invoke("install_scrcpy"); } catch (e: any) { setIsBuilding(false); }
+    try { await invoke("install_scrcpy"); } catch (e: any) {
+      setBuildLogs(prev => [...prev, "❌ Error: " + e]);
+      setBuildTitle("❌ Installation Error");
+    }
   };
 
   const buildApk = async (type: string) => {
@@ -244,10 +250,21 @@ function App() {
     setBuildLogs(["Initializing Gradle..."]);
     const unlistenLog = await listen("build_log", (event: any) => setBuildLogs(prev => [...prev, event.payload]));
     const unlistenDone = await listen("build_done", (event: any) => {
-      setIsBuilding(false); unlistenLog(); unlistenDone(); scanApks(projectPath);
-      if (event.payload !== "Success") alert("Build failures.");
+      unlistenLog(); unlistenDone(); scanApks(projectPath);
+      if (event.payload === "Success") {
+        setBuildLogs(prev => [...prev, "✅ Build Finished Successfully!"]);
+        setBuildTitle("✅ Build Successful");
+      } else {
+        setBuildLogs(prev => [...prev, "❌ Build Failed: " + event.payload]);
+        setBuildTitle("❌ Build Failed");
+      }
     });
-    try { await invoke("build_apk", { projectPath, buildType: type }); } catch { setIsBuilding(false); }
+    try {
+      await invoke("build_apk", { projectPath, buildType: type });
+    } catch (e: any) {
+      setBuildLogs(prev => [...prev, "❌ Error: " + e]);
+      setBuildTitle("❌ Build Error");
+    }
   };
 
   const selectProject = async () => {
@@ -341,7 +358,9 @@ function App() {
           <div style={STYLES.buildModal}>
             <div style={STYLES.buildHeader}>
               <span style={{ color: "#fff", fontWeight: 600, fontSize: "15px" }}>{buildTitle}</span>
-              <button style={{ ...STYLES.button, padding: "4px 10px", backgroundColor: "rgba(255,255,255,0.2)", color: "#fff", border: "none" }} onClick={() => setIsBuilding(false)}>Hide Viewer</button>
+              <button style={{ ...STYLES.button, padding: "4px 10px", backgroundColor: "rgba(255,255,255,0.2)", color: "#fff", border: "none" }} onClick={() => setIsBuilding(false)}>
+                {buildTitle.includes("Failed") || buildTitle.includes("Error") || buildTitle.includes("Successful") ? "Close" : "Hide Viewer"}
+              </button>
             </div>
             <div style={STYLES.buildLogsView}>
               {buildLogs.map((logLine, index) => <div key={index} style={{ marginBottom: "2px" }}>{logLine}</div>)}
